@@ -1,0 +1,884 @@
+---
+title: "mlr"
+author: "Buse Baltacıoğlu"
+date: "04 02 2021"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+lowbwt <- read_table2("C:/Users/Casper/Desktop/DSM 5007 Denetimli İstatistiksel Öğrenme/Notlar/Arasınav/lowbwt.txt", 
+                      col_names = FALSE, 
+                      col_types = cols(X1 = col_skip(), X12 = col_skip()))
+
+colnames(lowbwt)<-c("Low","Age","Lwt","Race","Smoke","Ptl","Ht","UI","FTV","BWT")
+
+Low<-as.factor(lowbwt$Low)
+Age<-lowbwt$Age
+Ltw<-lowbwt$Lwt
+Race<-as.factor(lowbwt$Race)
+Smoke<-as.factor(lowbwt$Smoke)
+Ptl<-as.factor(lowbwt$Ptl)
+Ht<-as.factor(lowbwt$Ht)
+UI<-as.factor(lowbwt$UI)
+Ftv<-as.factor(lowbwt$FTV)
+Bwt<-lowbwt$BWT
+
+data_a<-data.frame(Age,Ltw,Race,Smoke,Ptl,Ht,UI,Ftv,Bwt)
+data_b<-data.frame(Low,Age,Ltw,Race,Smoke,Ptl,Ht,UI,Ftv)
+str(data_a)
+str(data_b)
+```
+
+# A.Yanıt değişkeni: BWT olarak alınacak. (Veriden LOW değişkenini çıkartmayı unutmayın!)
+```{r}
+library(ISLR)
+library(rpart)
+```
+
+```{r}
+set.seed(540)
+train_dataa<-sample(1:nrow(data_a),(length(data_a$Age)*.7))
+train_a<-data_a[train_dataa,]
+test_a<-data_a[-train_dataa,]
+dim(train_a)
+dim(test_a)
+```
+
+##1. Doğrusal regresyon (LM)
+```{r}
+library(GGally)
+ggpairs(train_a)
+```
+
+```{r}
+Lm<-lm(train_a$Bwt~., data = train_a)
+summary(Lm)
+```
+Ltw,Race2,Race3,Ptl1,UI1 %5 önem düzeyinde anlamlı çıkmıştır. p<alfa olduğu içinde model anlamlı çıkmıştır. 8 bağımsız değişken doğum ağırlığını %28 açıklamaktadır.
+
+```{r}
+library(olsrr)
+(s<-ols_step_both_p(Lm))
+```
+Adımsal alt küme seçim yöntemi ile UI+Ltw+Race+Smoke değişkenlerinin bulunduğu modeli önermiştir.
+
+```{r}
+Lm_new<-lm(train_a$Bwt~train_a$UI+train_a$Ltw+train_a$Race+train_a$Smoke, data = train_a)
+summary(Lm_new)
+```
+UI1,Ltw,Race2,Race3,Smoke1 %5 önem düzeyinde anlamlı çıkmıştır. p<alfa olduğu içinde model anlamlı çıkmıştır. 5 bağımsız değişken doğum ağırlığını %23 açıklamaktadır.
+H_0: Bwt değişkeni normal dağılır.
+H_1: Bwt değişkeni normal dağılmaz.
+
+```{r}
+shapiro.test(train_a$Bwt)
+```
+0.7909>0.05 olduğu için H_0 reddedilemez. Bwt değişkeni normal dağılır.
+
+H_0: Artıklar normal dağılır.
+H_1: Artıklar normal dağılmaz.
+```{r}
+shapiro.test(Lm_new$residuals)
+```
+0.8727>0.05 olduğu için H_0 reddedilemez. Hatalar normal dağılır.
+
+H_0:Artıkların varyansı homojendir
+H_1:Artıkların varyansı heterojendir
+```{r}
+bptest(Lm_new)
+```
+0.3355>0.05 olduğu için H_0 reddedilemez. Artıkların varyansı homojendir.
+
+```{r}
+library(car)
+vif(Lm_new)
+```
+Tüm değişkenlerin vif değerleri 5'ten küçük olduğu için aralarında çoklu doğrusal bağlantı sorunu yoktur.
+
+```{r}
+outlierTest(Lm_new)
+```
+2. gözlem uç değer çıkmıştır.
+
+```{r}
+library(DescTools)
+pred_lm_test<-Predict(Lm_new, newdata = test_a)
+rmse_lm_test<-RMSE(pred_lm_test, test_a$Bwt)
+mae_lm_test<-MAE(pred_lm_test, test_a$Bwt)
+mape_lm_test<-MAPE(pred_lm_test, test_a$Bwt)
+(predictions_lm_test<-cbind(rmse_lm_test,mae_lm_test,mape_lm_test))
+```
+
+```{r}
+pred_lm_train<-Predict(Lm_new, newdata = train_a)
+rmse_lm_train<-RMSE(pred_lm_train, train_a$Bwt)
+mae_lm_train<-MAE(pred_lm_train, train_a$Bwt)
+mape_lm_train<-MAPE(pred_lm_train, train_a$Bwt)
+(predictions_lm_train<-cbind(rmse_lm_train,mae_lm_train,mape_lm_train))
+```
+
+
+##2. Regresyon Ağacı (RT)
+```{r}
+library(tree)
+set.seed(540)
+Rt<-tree(train_a$Bwt~., data=train_a, subset = train_dataa)
+summary(Rt)
+```
+Terminal node sayısı 14, artıkların ortalamadan sapması 304900 
+
+```{r}
+plot(Rt)
+text(Rt)
+```
+Oluşan ağaca baktığımızda gereksiz dallanmalar olduğu görülmekte bu sebepten dolayı budamamız gerekir.
+
+```{r}
+set.seed(540)
+(cv_rtree<-cv.tree(Rt))
+```
+
+```{r}
+yhat_rt_train<-predict(Rt, newdata=train_a) 
+```
+
+```{r}
+plot(yhat_rt_train, train_a$Bwt)
+abline(0,1)
+```
+
+```{r}
+rmse_rt_train<-RMSE(yhat_rt_train, train_a$Bwt)
+mae_rt_train<-MAE(yhat_rt_train, train_a$Bwt)
+mape_rt_train<-MAPE(yhat_rt_train, train_a$Bwt)
+(predictions_rt_train<-cbind(rmse_rt_train,mae_rt_train,mape_rt_train))
+```
+
+```{r}
+yhat_rt<-predict(Rt, newdata=test_a) 
+```
+
+```{r}
+plot(yhat_rt, test_a$Bwt)
+abline(0,1)
+```
+
+```{r}
+rmse_rt_test<-RMSE(yhat_rt, test_a$Bwt)
+mae_rt_test<-MAE(yhat_rt, test_a$Bwt)
+mape_rt_test<-MAPE(yhat_rt, test_a$Bwt)
+(predictions_rt_test<-cbind(rmse_rt_test,mae_rt_test,mape_rt_test))
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(cv_rtree$size ,cv_rtree$dev, type="b")
+plot(cv_rtree$k, cv_rtree$dev, type="b")
+```
+Dirsek noktalarını dikkate alırsak 3 terminal node incelenmelidir.
+
+```{r}
+prune_rtree<-prune.tree(Rt, best=3)
+summary(prune_rtree)
+```
+
+```{r}
+plot(prune_rtree)
+text(prune_rtree)
+```
+
+```{r}
+yhat_rtt<-predict(prune_rtree,newdata=test_a)    
+```
+
+```{r}
+plot(yhat_rtt,test_a$Bwt) 
+abline(0,1)
+```
+
+```{r}
+rmse_rtt_test<-RMSE(yhat_rtt, test_a$Bwt)
+mae_rtt_test<-MAE(yhat_rtt, test_a$Bwt)
+mape_rtt_test<-MAPE(yhat_rtt, test_a$Bwt)
+(predictions_rtt_test<-cbind(rmse_rtt_test,mae_rtt_test,mape_rtt_test))
+```
+
+```{r}
+yhat_rtt_train<-predict(prune_rtree, newdata=train_a) 
+```
+
+```{r}
+plot(yhat_rtt_train, train_a$Bwt)
+abline(0,1)
+```
+
+```{r}
+rmse_rtt_train<-RMSE(yhat_rtt_train, train_a$Bwt)
+mae_rtt_train<-MAE(yhat_rtt_train, train_a$Bwt)
+mape_rtt_train<-MAPE(yhat_rtt_train, train_a$Bwt)
+(predictions_rtt_train<-cbind(rmse_rtt_train,mae_rtt_train,mape_rtt_train))
+```
+
+
+
+
+
+##3. Bagging ile regresyon ağacı (BRT)
+```{r}
+library(randomForest)
+```
+
+```{r}
+set.seed(540)
+Brt<-randomForest(train_a$Bwt~., data = train_a, subset = train_dataa, mtry=8, importance=TRUE, na.action = na.omit)
+Brt
+```
+MSR=497620 ve varyans açıklama oranı 6.35
+
+```{r}
+yhat_brt_train<-predict(Brt, newdata=train_a) 
+```
+
+```{r}
+plot(yhat_brt_train, train_a$Bwt)
+abline(0,1)
+```
+
+```{r}
+rmse_brt_train<-RMSE(yhat_brt_train, train_a$Bwt)
+mae_brt_train<-MAE(yhat_brt_train, train_a$Bwt)
+mape_brt_train<-MAPE(yhat_brt_train, train_a$Bwt)
+(predictions_brt_train<-cbind(rmse_brt_train,mae_brt_train,mape_brt_train))
+```
+
+```{r}
+yhat_brt_test<-predict(Brt, newdata=test_a) 
+```
+
+```{r}
+plot(yhat_brt_test, test_a$Bwt)
+abline(0,1)
+```
+
+```{r}
+rmse_brt_test<-RMSE(yhat_brt_test, test_a$Bwt)
+mae_brt_test<-MAE(yhat_brt_test, test_a$Bwt)
+mape_brt_test<-MAPE(yhat_brt_test, test_a$Bwt)
+(predictions_brt_test<-cbind(rmse_brt_test,mae_brt_test,mape_brt_test))
+```
+
+```{r}
+importance(Brt)
+varImpPlot(Brt)
+```
+
+
+
+
+
+##4. Rassal Ormanlar Regresyonu (RFR) yöntemlerini uygulayınız.
+```{r}
+round(sqrt(length(data_a)-1),0)
+```
+
+```{r}
+set.seed(540)
+Rfr<-randomForest(train_a$Bwt~., data = train_a, subset = train_dataa, mtry = 3, importance = TRUE, na.action =na.omit)
+Rfr
+```
+MSR=474943.6 ve varyans açıklama oranı 8.82
+
+
+```{r}
+yhat_rfr_train<-predict(Rfr, newdata=train_a) 
+```
+
+```{r}
+plot(yhat_rfr_train, train_a$Bwt)
+abline(0,1)
+```
+
+```{r}
+rmse_rfr_train<-RMSE(yhat_rfr_train, train_a$Bwt)
+mae_rfr_train<-MAE(yhat_rfr_train, train_a$Bwt)
+mape_rfr_train<-MAPE(yhat_rfr_train, train_a$Bwt)
+(predictions_rfr_train<-cbind(rmse_rfr_train,mae_rfr_train,mape_rfr_train))
+```
+
+```{r}
+yhat_rfr_test<-predict(Rfr, newdata=test_a) 
+```
+
+```{r}
+plot(yhat_rfr_test, test_a$Bwt)
+abline(0,1)
+```
+
+```{r}
+rmse_rfr_test<-RMSE(yhat_rfr_test, test_a$Bwt)
+mae_rfr_test<-MAE(yhat_rfr_test, test_a$Bwt)
+mape_rfr_test<-MAPE(yhat_rfr_test, test_a$Bwt)
+(predictions_rfr_test<-cbind(rmse_rfr_test,mae_rfr_test,mape_rfr_test))
+```
+
+```{r}
+importance(Rfr)
+varImpPlot(Rfr)
+```
+
+```{r}
+rfr_test<-ifelse(yhat_rfr_test<=mean(yhat_rfr_test),0,1)
+bbwt<-ifelse(test_a$Bwt<=mean(test_a$Bwt),0,1)
+(table_rfr_test<-table(rfr_test, bbwt))
+```
+
+```{r}
+(accuracy_rfr_test<-sum(diag(table_rfr_test))/sum(table_rfr_test))
+```
+
+
+
+##5. Test verisi üzerinde performanslarını karşılaştırarak, yorumlayınız.
+```{r}
+predictions_train<-cbind(predictions_lm_train,predictions_rtt_train,predictions_brt_train,predictions_rfr_train)
+
+(predictions_test<-cbind(predictions_lm_test,predictions_rtt_test,predictions_brt_test,predictions_rfr_test))
+```
+
+rmse train verisi için optimal değer bagging yöntemi ile elde edilmiştir.
+mae train verisi için optimal değer bagging yöntemi ile elde edilmiştir.
+mape train verisi için optimal değer bagging yöntemi ile elde edilmiştir.
+
+rmse test verisi için optimal değer bagging ve rassal ormanlar yöntemi ile elde edilmiştir.
+mae test verisi için optimal değer bagging ve rassal ormanlar yöntemi ile elde edilmiştir.
+mape test verisi için optimal değer bagging ve rassal ormanlar yöntemi ile elde edilmiştir.
+
+
+
+
+
+#B. Yanıt değişkeni: LOW olarak alınacak. (Veriden BWT değişkenini çıkartmayı unutmayın
+```{r}
+set.seed(540)
+train_datab<-sample(1:nrow(data_b),(length(data_b$Low)*.7))
+train_b<-data_b[train_datab,]
+test_b<-data_b[-train_datab,]
+dim(train_b)
+dim(test_b)
+```
+
+##6. Sınıflandırma Ağacı (CT)
+```{r}
+library(tree)
+set.seed(540)
+Ct<-tree(train_b$Low~., data=train_b, subset = train_datab)
+summary(Ct)
+```
+Terminal node sayısı 11, artıkların ortalamadan sapması 0.9398 ve accuracy=76
+
+```{r}
+plot(Ct)
+text(Ct)
+```
+Oluşan ağaca baktığımızda gereksiz dallanmalar olduğu görülmekte bu sebepten dolayı budamamız gerekir.
+
+```{r}
+(cv_tree<-cv.tree(Ct))
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(cv_tree$size ,cv_tree$dev, type="b")
+plot(cv_tree$k, cv_tree$dev, type="b")
+```
+Grafiğe baktığımızda 5 denenmeli diyebiliriz fakat denediğimizde gereksiz dallanma olduğunu ve node değerini 5 in altında alamayacağımızı görüyoruz. Yapılan denemeler üzerine 7 terminal node sayısı olarak alınmıştır.
+
+```{r}
+prune_ctree<-prune.tree(Ct, best=7)
+summary(prune_ctree)
+```
+Terminal node sayısı 7, artıkların ortalamadan sapması 1.001 ve accuracy=74
+ 
+```{r}
+plot(prune_ctree)
+text(prune_ctree)
+```
+
+```{r}
+pred_ct_train<-predict(prune_ctree,newdata=train_b,type="class")
+(xtab_ctree_train<-table(pred_ct_train,train_b$Low))
+```
+
+```{r}
+(accuracy_ct_train<-sum(diag(xtab_ctree_train))/sum(xtab_ctree_train))
+```
+
+```{r}
+pred_ct_test<-predict(prune_ctree,newdata=test_b,type="class")
+(xtab_ctree_test<-table(pred_ct_test,test_b$Low))
+```
+
+```{r}
+(accuracy_ct_test<-sum(diag(xtab_ctree_test))/sum(xtab_ctree_test))
+```
+
+
+
+
+
+##7. Bagging ile sınıflandırma ağacı (BCT)
+```{r}
+set.seed(540)
+Bct<-randomForest(train_b$Low~., data = train_b, subset = train_datab, mtry=8, importance=TRUE, na.action =na.omit)
+Bct
+```
+
+
+```{r}
+yhat_bct_train<-predict(Bct, newdata = train_b)
+(table_bct_train<-table(yhat_bct_train, train_b$Low))
+```
+
+```{r}
+(accuracy_bct_train<-sum(diag(table_bct_train))/sum(table_bct_train))
+```
+
+
+```{r}
+yhat_bct_test<-predict(Bct, newdata = test_b)
+(table_bct_test<-table(yhat_bct_test, test_b$Low))
+```
+
+```{r}
+(accuracy_bct_test<-sum(diag(table_bct_test))/sum(table_bct_test))
+```
+
+```{r}
+Bct$importance
+varImpPlot(Bct)
+```
+
+
+
+
+
+##8. Rassal Ormanlar ile Sınıflandırma Ağacı (RFC)
+```{r}
+round(sqrt(length(data_b)-1),0)
+```
+
+```{r}
+set.seed(540)
+Rfc<-randomForest(train_b$Low~., data = train_b, subset = train_datab, mtry = 3, importance = TRUE, na.action =na.omit)
+Rfc
+```
+
+```{r}
+yhat_rfc_train<-predict(Rfc, newdata = train_b)
+(table_rfc_train<-table(yhat_rfc_train, train_b$Low))
+```
+
+```{r}
+(accuracy_rfc_train<-sum(diag(table_rfc_train))/sum(table_rfc_train))
+```
+
+```{r}
+yhat_rfc_test<-predict(Rfc, newdata = test_b)
+(table_rfc_test<-table(yhat_rfc_test, test_b$Low))
+```
+
+```{r}
+(accuracy_rfc_test<-sum(diag(table_rfc_test))/sum(table_rfc_test))
+```
+
+```{r}
+importance(Rfc)
+varImpPlot(Rfc)
+```
+
+
+
+
+
+##9. Lojistik Regresyon (LR)
+```{r}
+Lr<-glm(train_b$Low~.,family=binomial, data=train_b) 
+summary(Lr)
+```
+
+```{r}
+G=Lr$null.deviance-Lr$deviance
+qchisq(0.95,9) 
+p_value=1-pchisq(G,9)
+p_value 
+```
+%95 güvenle p<alpha Ho reddedilir ve model geçerlidir.
+Ptl1 değişkenleri %95 güvenle anlamlı çıkmıştır.
+
+```{r}
+library(MASS)
+step_reg<-stepAIC(Lr)
+step_reg$anova
+```
+
+```{r}
+Lr_new<-glm(train_b$Low~train_b$Ltw+train_b$Race+train_b$Smoke+train_b$Ptl+train_b$Ht+train_b$UI, family=binomial, data=train_b)
+summary(Lr_new)
+```
+
+```{r}
+loww<-as.numeric(train_b$Low)
+tahmin_lr_train<-predict(Lr_new, newdata=train_b)  
+tahmin_lr_train<-ifelse(tahmin_lr_train<=mean(loww),0,1)
+```
+
+```{r}
+(xtab_lr_train<-table(tahmin_lr_train,train_b$Low))
+accuracy_lr_train<-sum(diag(xtab_lr_train))/sum(xtab_lr_train)
+accuracy_lr_train
+```
+
+```{r}
+tahmin_lr_test<-Predict(Lr_new,test_b$Low)
+tahmin_lr_test<-ifelse(tahmin_lr_test<=mean(loww),0,1)
+```
+
+```{r}
+xtab1<-table(tahmin_lr_test)
+xtab2<-table(test_b$Low)
+cfmatrix_lr_test<-cbind(xtab1,xtab2)
+cfmatrix_lr_test
+```
+
+```{r}
+(accuracy_lr_test<-mean(tahmin_lr_test==test_b$Low))
+```
+
+
+
+
+##10. Doğrusal Ayırma Analizi (LDA) (uygun değişkenleri seçerek)
+```{r}
+str(train_b)
+```
+
+```{r}
+library(MASS)
+```
+
+```{r}
+Lda<-lda(train_b$Low~train_b$Age+train_b$Ltw, data=train_b)
+Lda
+```
+
+```{r}
+tahmin_lda_train<-predict(Lda,train_b)
+cbind(tahmin_lda_train$posterior,tahmin_lda_train$class)
+```
+
+```{r}
+hist_lda1<-ldahist(data = tahmin_lda_train$x, g = train_b$Low)
+```
+
+```{r}
+cfmatrix_lda_train<-table(Tahmin=tahmin_lda_train$class, train_b$Low)
+cfmatrix_lda_train
+```
+
+```{r}
+accuracy_lda_train<-sum(diag(cfmatrix_lda_train))/sum(cfmatrix_lda_train)
+accuracy_lda_train
+```
+Accuracy_train_LDA → %68
+
+```{r}
+tahmin_lda_test<-predict(Lda,test_b)
+tahmin_lda_test$class
+```
+
+```{r}
+hist_lda2<-ldahist(data = tahmin_lda_test$x, g = test_b$Low)
+```
+
+```{r}
+xtab3<-table(tahmin_lda_test$class)
+cfmatrix_lda_test<-(Tahmin=tahmin_lda_test$class, Gercek=test_b$Low)
+cfmatrix_lda_test
+```
+
+```{r}
+(accuracy_lda_test<-mean(tahmin_lda_test$class==test_b$Low))
+```
+Accuracy_test_LDA → %63
+
+```{r}
+library(mvnTest)
+```
+
+```{r}
+norm_0<-data_b[data_b$Low==0,-(4:9)]
+norm_1<-data_b[data_b$Low==1,-(4:9)]
+```
+
+```{r}
+HZ.test(norm_0[,-1])
+HZ.test(norm_1[,-1])
+```
+
+Alternatif normallik testi
+
+```{r}
+DH.test(norm_0[,-1])
+DH.test(norm_1[,-1])
+```
+
+H_o = Covariance matrices of the outcome variable are equal across all groups
+H_a = Covariance matrices of the outcome variable are different for at least one group
+```{r}
+library(heplots)
+```
+
+```{r}
+(boxm <- heplots::boxM(data_b[, c(2,3)], data_b$Low))
+```
+p-value = 0.1259 > 0.05 olduğu için %95 güvenle Ho reddedilemez. Değişkenlerin varyans kovaryans matrisi eşittir.
+
+```{r}
+plot(boxm)
+```
+
+
+
+
+
+##11. Eğrisel Ayırma Analizi (QDA) (uygun değişkenleri seçerek) yöntemlerini uygulayınız.
+```{r}
+Qda<-qda(train_b$Low~train_b$Age+train_b$Ltw, data=train_b)
+Qda
+```
+
+```{r}
+tahmin_qda_train<-predict(Qda, train_b)
+```
+
+```{r}
+(cfmatrix_qda_train<-table(Tahmin=tahmin_qda_train$class, Gercek=train_b$Low))
+(accuracy_qda_train<-mean(tahmin_qda_train$class==train_b$Low))
+```
+Accuracy_train_qda → %67
+
+
+```{r}
+tahmin_qda_test<-predict(Qda, test_b$Low)
+```
+
+```{r}
+(accuracy_qda_test<-mean(tahmin_qda_test$class==test_b$Low))
+```
+Accuracy_test_qda → %64
+
+
+
+
+
+##12. Test verisi üzerinde performanslarını karşılaştırınız.
+```{r}
+accuracy_train<-cbind(accuracy_ct_train,accuracy_bct_train,accuracy_rfc_train,accuracy_lr_train,accuracy_lda_train,accuracy_qda_train)
+
+accuracy_test<-cbind(accuracy_ct_test,accuracy_bct_test,accuracy_rfc_test,accuracy_lr_test,accuracy_lda_test,accuracy_qda_test)
+
+(snc<-rbind(accuracy_train,accuracy_test))
+```
+
+Bagging
+
+
+
+
+##13. Tüm modellere ait ROC eğrisini tek bir grafik üstünde göstererek, eğri altında kalan alan (AUC) hesaplaması yaparak yorumlayınız.
+```{r}
+library(ROCR)
+```
+###Classification tree
+```{r}
+ctree<-as.numeric(pred_ct_test)
+ctree<-ifelse(ctree<=1,0,1)
+pr_ctree<-prediction(ctree, test_b$Low)
+prf_ctree<-performance(pr_ctree, measure = "tpr", x.measure = "fpr")
+```
+
+```{r}
+plot(prf_ctree, col="green")
+abline(0,1)
+```
+
+```{r}
+auc_ct <- performance(pr_ctree, measure = "auc")
+auc_ct <- auc_ct@y.values[[1]]
+auc_ct
+```
+
+###Bagging
+```{r}
+bagging<-as.numeric(yhat_bct_test)
+bagging<-ifelse(bagging<=1,0,1)
+pr_bag<-prediction(bagging, test_b$Low)
+prf_bag<-performance(pr_bag, measure = "tpr", x.measure = "fpr")
+```
+
+```{r}
+plot(prf_bag, col="pink")
+abline(0,1)
+```
+
+```{r}
+auc_bag<-performance(pr_bag, measure = "auc")
+auc_bag<-auc_bag@y.values[[1]]
+auc_bag
+```
+
+###Random forest
+```{r}
+tahmin_rf<-as.numeric(yhat_rfc_test)
+tahmin_rf<-ifelse(tahmin_rf<=1,0,1)
+pr_rf<-prediction(tahmin_rf, test_b$Low)
+prf_rf<-performance(pr_rf, measure = "tpr", x.measure = "fpr")
+```
+
+```{r}
+plot(prf_rf, col="purple")
+abline(0,1)
+```
+
+```{r}
+auc_rf<-performance(pr_rf, measure = "auc")
+auc_rf<-auc_rf@y.values[[1]]
+auc_rf
+```
+
+###Lojistic regression
+```{r}
+tahmin_lr<-as.numeric(tahmin_lr_test)
+tahmin_lr<-ifelse(tahmin_lr<=1,0,1)
+pr_lr<-prediction(tahmin_lr, test_b$Low)
+prf_lr<-performance(pr_lr, measure = "tpr", x.measure = "fpr")
+```
+
+```{r}
+plot(prf_lr, col="red")
+abline(0,1)
+```
+
+```{r}
+auc_lr <- performance(pr_lr, measure = "auc")
+auc_lr <- auc_lr@y.values[[1]]
+auc_lr
+```
+
+###LDA
+```{r}
+tahmin_lda<-as.numeric(tahmin_lda_test$class)
+tahmin_lda<-ifelse(tahmin_lda<=1,0,1)
+pr_lda <- prediction(tahmin_lda, train_b$Low)
+prf_lda <- performance(pr_lda, measure = "tpr", x.measure = "fpr")
+```
+
+```{r}
+plot(prf_lda, col="blue")
+abline(0,1)
+```
+
+```{r}
+auc_lda <- performance(pr_lda, measure = "auc")
+auc_lda <- auc_lda@y.values[[1]]
+auc_lda
+```
+
+###QDA
+```{r}
+tahmin_qda<-as.numeric(tahmin_qda_test$class)
+tahmin_qda<-ifelse(tahmin_qda<=1,0,1)
+pr_qda <- prediction(tahmin_qda, train_b$Low)
+prf_qda <- performance(pr_lda, measure = "tpr", x.measure = "fpr")
+```
+
+```{r}
+plot(prf_qda, col="brown")
+abline(0,1)
+```
+
+```{r}
+auc_qda <- performance(pr_qda, measure = "auc")
+auc_qda <- auc_qda@y.values[[1]]
+auc_qda
+```
+
+###Karşılaştırma
+```{r}
+auc<-cbind(auc_ct,auc_bag,auc_rf,auc_lr,auc_lda,auc_qda)
+```
+
+```{r}
+plot(prf_ctree, col="green")
+plot(prf_bag, col="pink", add=T)
+plot(prf_rf, col="purple", add=T)
+plot(prf_lr, col="red", add=T)
+plot(prf_lda, col="blue", add=T)
+plot(prf_qda, col="brown", add=T)
+```
+
+
+
+#C. SONUÇ
+##14. Bu veri seti için genel olarak en uygun modelleme hangisidir? Açıklayınız.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

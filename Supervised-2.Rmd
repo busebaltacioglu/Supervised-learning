@@ -1,0 +1,864 @@
+---
+title: "mlr"
+author: "Buse Nur BALTACIOĞLU"
+date: "02 01 2020"
+output:
+  pdf_document: default
+  word_document: default
+---
+```{r message=FALSE, warning=FALSE}
+library(readxl)
+library(goftest)
+library(ggplot2)
+library(dplyr)
+library(broom)
+library(ggpubr)
+library(corrplot)
+library(ISLR)
+library(car)
+library(olsrr)
+library(lmtest)
+library(GGally)
+library(caret)
+library(tidyverse)
+library(AppliedPredictiveModeling)
+library(pls)
+library(elasticnet)
+library(broom)
+library(glmnet)
+library(MASS)
+library(PerformanceAnalytics)
+library(funModeling)
+library(Matrix)
+library(forecast)
+library(stats)
+```
+
+Veri seti ile ilgili bilgiler
+
+Veri seti, santralin tam yükte çalışmaya ayarlandığı 6 yılda (2006-2011) bir Kombine Çevrim Santralinden toplanan 9568 veri noktasını içermektedir.
+
+Özellikler saatlik ortalama ortam değişkenlerinden oluşur
+
+PE:Net saatlik elektrik enerjisi çıkışı (bağımlı değişken)
+
+AT:Sıcaklık
+
+V:Egzoz Vakum
+
+AP:Ortam Basıncı 
+
+RH:Bağıl Nem %
+
+
+Ortalamalar, her saniye ortam değişkenlerini kaydeden tesis çevresinde bulunan çeşitli sensörlerden alınmıştır. Değişkenler normalleştirilmeden verilmiştir.
+
+```{r}
+
+cevrim_santrali <- read_excel("C:/Users/Casper/Desktop/DSM 5007 Denetimli İstatistiksel Öğrenme/ödevler/Alıştırmalar/cevrim_santrali.xlsx")
+
+head(cevrim_santrali)
+dim(cevrim_santrali)
+
+attach(cevrim_santrali)
+
+df<-data.frame(PE,AT,V,AP,RH)
+
+colnames(df)<-c("Enerji","Sıcaklık","Vakum","Basınc","Nem")
+
+ggpairs(df)
+
+summary(df)
+
+```
+Train-test set
+```{r}
+
+sample <- floor(0.70 * nrow(df))
+set.seed(540) 
+train_ind <- sample(nrow(df), size = sample, replace = FALSE)
+train <- df[train_ind, ]
+test <- df[-train_ind, ]
+
+dim(train)
+dim(test)
+str(test)
+
+```
+
+##Bağımlı değişkenin varsayım kontrolü
+
+H_0:Y değişkeni normal dağılır.
+H_1:Y değişkeni normal dağılmaz.
+
+```{r}
+hist(train$Enerji,prob=TRUE)
+lines(density(train$Enerji,bw = 1),lwd=2)
+```
+
+```{r}
+qqnorm(train$Enerji, pch = 1, frame = T)
+qqline(train$Enerji, col = "steelblue", lwd = 3)
+```
+
+```{r}
+boxplot(train$Enerji,horizontal = T)
+```
+
+```{r}
+ks.test(train$Enerji,alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+```{r}
+cvm.test(train$Enerji)
+```
+
+```{r}
+ad.test(train$Enerji,"pnorm",mean=0,sd=1)
+```
+(p-value) < 0.05 olduğu için H_0 reddedilir enerji çıkışı normal dağılmaz.
+Grafikten ve normallik testiyle kontrol ettiğimiz bağımlı değikenimiz doğrusal regresyon varsayımlarından biri olan bağımlı değişkenin normal dağılması varsayımını sağlayamamaktadır. 
+
+
+###Karekök dönüşümü
+```{r}
+y<-sqrt(train$Enerji)
+```
+
+```{r}
+hist(y,prob=TRUE)
+lines(density(y,bw = 1),lwd=2)
+```
+
+```{r}
+qqnorm(y, pch = 1, frame = T)
+qqline(y, col = "steelblue", lwd = 3)
+```
+
+```{r}
+ks.test(y,alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+```{r}
+cvm.test(y,"pnorm",mean=0,sd=1)
+```
+
+```{r}
+ad.test(y,"pnorm",mean=0,sd=1)
+```
+
+###Küpkök dönüşümü
+```{r}
+y<-(train$Enerji)^(1/3)
+```
+
+```{r}
+hist(y,prob=TRUE)
+lines(density(y,bw = 1),lwd=2)
+```
+
+```{r}
+qqnorm(y, pch = 1, frame = T)
+qqline(y, col = "steelblue", lwd = 3)
+```
+
+```{r}
+ks.test(y,alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+```{r}
+cvm.test(y,"pnorm",mean=0,sd=1)
+```
+
+```{r}
+ad.test(y,"pnorm",mean=0,sd=1)
+```
+
+###Logaritmik Dönüşüm
+```{r}
+y<-log(train$Enerji)
+```
+
+```{r}
+hist(y,prob=TRUE)
+lines(density(y,bw = 1),lwd=2)
+```
+
+```{r}
+qqnorm(y, pch = 1, frame = T)
+qqline(y, col = "steelblue", lwd = 3)
+```
+
+```{r}
+ks.test(y,alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+```{r}
+cvm.test(y,"pnorm",mean=0,sd=1)
+```
+
+```{r}
+ad.test(y,"pnorm",mean=0,sd=1)
+```
+
+###Ters dönüşümü
+```{r}
+y<-(train$Enerji)^(-1)
+```
+
+```{r}
+hist(y,prob=TRUE)
+lines(density(y,bw = 1),lwd=2)
+```
+
+```{r}
+qqnorm(y, pch = 1, frame = T)
+qqline(y, col = "steelblue", lwd = 3)
+```
+
+```{r}
+ks.test(y,alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+```{r}
+cvm.test(y,"pnorm",mean=0,sd=1)
+```
+
+```{r}
+ad.test(y,"pnorm",mean=0,sd=1)
+```
+
+###Kare dönüşümü
+```{r}
+y<-(train$Enerji)^2
+```
+
+```{r}
+hist(y,prob=TRUE)
+lines(density(y,bw = 1),lwd=2)
+```
+
+```{r}
+qqnorm(y, pch = 1, frame = T)
+qqline(y, col = "steelblue", lwd = 3)
+```
+
+```{r}
+ks.test(y,alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+```{r}
+cvm.test(y,"pnorm",mean=0,sd=1)
+```
+
+```{r}
+ad.test(y,"pnorm",mean=0,sd=1)
+```
+
+###Küp Dönüşümü
+```{r}
+y<-(train$Enerji)^3
+```
+
+```{r}
+hist(y,prob=TRUE)
+lines(density(y,bw = 1),lwd=2)
+```
+
+```{r}
+qqnorm(y, pch = 1, frame = T)
+qqline(y, col = "steelblue", lwd = 3)
+```
+
+```{r}
+ks.test(y,alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+```{r}
+cvm.test(y,"pnorm",mean=0,sd=1)
+```
+
+```{r}
+ad.test(y,"pnorm",mean=0,sd=1)
+```
+
+```{r}
+view(train)
+```
+####Karar: Yapılan dönüşümlerin sonuçlarına baktığımızda bağımlı değişkenimiz normal dağılmamaktadır S curve dağılmaktadır.
+
+#1-Tanımlayıcı istatistikleri grafiklerle destekleyerek elde ediniz ve yorumlayınız.
+```{r}
+summary(train)
+```
+
+```{r}
+apply(train, 2, sd)
+```
+
+```{r}
+ggpairs(train)
+```
+ Enerji: Net saatlik elektrik enerjisi çıkışı 421.6 MW ile 495.8 MW arasında 454.4 MW ortalama ve 17 standart sapmayla değişmektedir.Grafikten iki tepeli ve sağa çarpık bir dağılıma sahip olduğunu söyleyebiliriz.
+ 
+ Sıcaklık: Sıcaklık 1.81 C ile 37.11 C arasında 19.63 C ortalama ve 7.42 standart sapmayla değişmektedir. İki tepeli bir dağılım olduğunu söyleyebiliriz.
+ 
+ Vakum: Egzoz vakum 25.36 cm Hg ile 81.56 cm Hg arasında 54.33 cm Hg ortalama ve 12.70 standart sapmayla değişmektedir. Bu değişkenimiz üç tepeli ve sağa çarpık bir dağılıma sahip olduğunu söyleyebiliriz.
+ 
+ Basınç: Ortam basıncı 993.1 milibar ile 1033.3 milibar arasında 1013.3 milibar ortalama ve 5.94 standart sapmayla değişmektedir. Ortam basıncı değişkenimizin normal dağıldığını söyleyebiliriz yinede test edilmelidir.
+ 
+  Nem: Bağıl nem %25.56 ile %100.15 arasında 73.45 ortalama ve 14.53 standart sapmayla değişmektedir.Sola çarpık bir dağılıma sahiptir.
+  
+#2-Matris Plot oluşturarak yorumlayınız.
+```{r}
+pairs(train[,1:5], pch=19, col="#00AFBB", lower.panel = NULL)
+```
+
+```{r}
+cor_df<-cor(train)
+corrplot::corrplot.mixed(cor_df)
+```
+  Korelasyon matrisine baktığımızda;
+  
+-Net saatlik elektrik enerjisi çıkışı ile sıcaklık arasında doğrusal negatif yönlü güçlü bir ilişki bulunmaktadır.
+
+-Net saatlik elektrik enerjisi çıkışı ile egzoz vakum arasında doğrusal negatif yönlü güçlü bir ilişki bulunmaktadır.
+
+-Net saatlik elektrik enerjisi çıkışı ile ortam basıncı arasında doğrusal pozitif yönlü bir ilişki bulunmaktadır. 
+
+-Net saatlik elektrik enerjisi çıkışı ile bağıl nem arasında doğrusal pozitif yönlü zayıf bir ilişki bulunmaktadır.
+
+-Sıcaklık ile egzoz vakum arasında doğrusal pozitif yönlü güçlü bir ilişki bulunmaktadır.
+
+-Sıcaklık ile basınç arasında doğrusal negatif yönlü bir ilişki bulunmaktadır.
+
+-Sıcaklık ile nem arasında doğrusal negatif yönlü bir ilişki bulunmaktadır.
+
+-Vakum ile basınç arasında doğrusal negatif yönlü bir ilişki bulunmaktadır.
+
+-Vakum ile nem arasında doğrusal negatif yönlü zayıf bir ilişki bulunmaktadır.
+
+-Basınç ile nem arasında doğrusal bir ilişki bulunmamaktadır.
+
+
+#3-Çoklu doğrusal regresyon modelini elde ediniz ve model geçerliliğini sıfır ve alternatif hipotezleri belirterek %5 önem düzeyinde test ediniz.
+```{r}
+model<-lm(train$Enerji~train$Sıcaklık+train$Vakum+train$Basınc+train$Nem)
+```
+
+H0: Bj=0
+H1: En az bir Bj farklıdır,  j=1,2,3
+
+```{r}
+summary(model)
+```
+-F istatistiğine karşılık gelen 2.2e-16<0.05 olduğu için %95 güven düzeyinde H0 red edilir; en az bir katsayı model için anlamlıdır.Model geçerlidir.
+
+
+#4-Hipotezleri yazarak elde ettiğiniz modeldeki anlamlı katsayıları belirleyiniz.
+
+```{r}
+anova(model)
+```
+
+```{r}
+summary(model)
+```
+H0: B0=0
+2e-16<0.05 olduğu için B0 parametresi %95 güvenle anlamlı çıkmıştır.
+-b0:Bağımsız değişkenlerin değerleri 0 olduğunda net saatlik elektrik enerjisi çıkışı ortalama 451.76 MW'dur.
+
+H0: B1=0
+2e-16<0.05 olduğu için B1 parametresi %95 güvenle anlamlı çıkmıştır.
+-b1:Diğer değişkenler modelde ve sabitken sıcaklık, 1 C arttığında net saatlik elektrik enerjisi çıkışını ortalama 1.97 MW azaltır.
+
+H0: B2=0
+2e-16<0.05 olduğu için B2 parametresi %95 güvenle anlamlı çıkmıştır.
+-b2:Diğer değişkenler modelde ve sabitken egzoz vakumu, 1 cm Hg arttığında net saatlik elektrik enerjisi çıkışını ortalama 0.24 MW azaltır.
+
+H0: B3=0
+9.56e-09<0.05 olduğu için B3 parametresi %95 güvenle anlamlı çıkmıştır.
+-b3:Diğer değişkenler modelde ve ortam basıncı, 1 milibar arttığında net saatlik elektrik enerjisi çıkışını ortalama 0.07 MW arttıracaktır.
+
+H0: B4=0
+2e-16<0.05 olduğu için B4 parametresi %95 güvenle anlamlı çıkmıştır.
+-b4:Diğer değişkenler modelde ve sabitken bağıl nem, 1 birim arttığında net saatlik elektrik enerjisi çıkışını ortalama 0.16 MW azaltır.
+
+#5-VIF değerlerini hesaplayınız ve yorumlayınız.
+```{r}
+vif(model)
+```
+Bu modelde vif değerleri sıcaklık dışında 5'ten küçük çıkmıştır. 
+
+
+#6-En iyi olası alt küme değişken seçim yöntemini uygulayarak alternatif iki model belirleyiniz. Gerekçelerini belirtiniz.
+
+```{r}
+ols<-ols_step_all_possible(model)
+summary(ols)
+plot(ols)
+View(ols)
+```
+
+-ilk elemeyi Cp üzerinden yapılırsa modeldeki yanlılığı ortadan kaldırabiliriz. Modeldeki parametre sayısına eşit çıkması istenir. Bu kritere baktığımızda full (15.) model yansız çıkmıştır. Bununla birlikte (sıcaklık+vakum+nem)) 11. modelde göze alınabilecek bir yanlılık bulunmaktadır. 5. model (sıcaklık+nem) de incelenmelidir.
+
+-Düzeltilmiş R^2 üzerinden karşılaştırma yapmak daha uygun ve ikisininde büyük ve yakın çıkması(modele alınan değişkenlerin anlamlı olduğu anlamına gelir) bu sebepten 11. ve 15. model en yüksek açıklamaya sahiptir.
+
+-Akaike Bilgi Kriteri (AIC) ve Bayesian Bilgi Kriteri (BIC,SBIC) kriterleri için de değerlerin küçük çıkması istenir. Bu kriterler 11. ve 15. modelleri önerir. 5. model SBIC açısından değerlendirilebilir.
+
+-Bunlarla birlikte ne kadar az değişken o kadar iyi olduğu için R^2'ler ve Cp açısındanda 11. model alternatif bir modeldir.
+
+#--------
+#Model 11
+```{r}
+mdl_11<-lm(train$Enerji~train$Sıcaklık+train$Vakum+train$Nem)
+summary(mdl_11)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(mdl_11)
+par(mfrow=c(1,1))
+```
+
+H_0:Artıkların varyansı homojendir
+H_1:Artıkların varyansı heterojendir
+0.0001892<0.05 → H_0 reddedilemez artıklar sabit değildir.
+```{r}
+bptest(mdl_11)
+```
+
+
+H_0:Artıklar normal dağılır
+H_1:Artıklar normal dağılmaz
+8.959e-08<0.05 → H_0 reddedilemez artıklar normal dağılmaz.
+```{r}
+ad.test(mdl_11$residuals)
+```
+
+```{r}
+ks.test(mdl_11$residuals, alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+Artıkların otokorelasyon kontrolü
+(DW = 1.8487)<2 olduğu için zayıf pozitif yönlü otokorelasyon bulunmaktadır.
+```{r}
+dwtest(mdl_11, alternative = "two.sided")
+```
+
+```{r}
+vif(mdl_11)
+```
+
+```{r}
+layout(matrix(c(1,2,3,4),2,2))
+
+e11<-resid(mdl_11)
+qqnorm(e11, ylab = "Sıradan Artıklar", xlab = "Normal Değerleri", col="#00AFBB")
+qqline(e11)
+
+d11<-rstandard(mdl_11)
+qqnorm(d11, ylab = "Standart artıklar", xlab = "Normal Değerleri", col="#E7B800")
+qqline(d11)
+
+r11<-rstudent(mdl_11)
+qqnorm(r11, ylab = "Student artıklar", xlab = "Normal Değerleri", col="#FC4E07")
+qqline(r11)
+
+```
+
+```{r}
+uyum.değerleri11<-mdl_11$fitted.values
+
+layout(matrix(c(1,2,3),1,3))
+
+plot(uyum.değerleri11, e11, ylab = "Sıradan Artıklar", xlab = "Uyum Değerleri", ylim = c(-20,20))
+abline(h=c(0,0), col="purple")
+
+plot(uyum.değerleri11,d11, ylab = "Standart Artıklar", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-3,0,3),col="purple")
+
+plot(uyum.değerleri11,r11, ylab = "Student Artıklar", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-2.5,0,2.5),col="purple")
+
+```
+student artıklara göre 459  571  918 1035 1170 1293 1384 1757 2147 2313 3004 3487 3964 4095 4181 4346 5375 5878 5936 5951 6537 gözlemler uç değer çıkmıştır.
+
+Şapka Matrisindeki Köşegen Değerleri
+```{r}
+hv11<-hatvalues(mdl_11)
+plot(hv11,ylab="Leverages",main="Index plot of Leverages", col="purple")
+abline(h=2*mean(hv11))
+sum(hv11)
+hv11_k<-hv11 > 2*mean(hv11)
+kaldirac<-which(hv11_k)
+kaldirac
+```
+hat değerlerine baktığımızda ..., gözlemler etkin gözlemlerdir ve incelenmelidir.
+
+Cook Uzaklığı, verilerden belirli bir gözlem atıldığında B(şapka) vektöründeki değişimi ölçmek için tasarlanmıştır.
+```{r}
+c11<-cooks.distance(mdl_11)
+cooks.distance(mdl_11)>(4/mdl_11$df.residual)
+which(cooks.distance(mdl_11)>4/mdl_11$df.residual)
+plot(cooks.distance(mdl_11))
+ci11<-4/model$df.residual
+identify(c11, pch = 1, frame = FALSE)
+which(c11>ci11)
+
+```
+gözlemler B(şapka) üzerinde yüksek etkili bir gözlemdir.
+
+```{r}
+outlierTest(mdl_11)
+influenceIndexPlot(mdl_11)
+influencePlot(mdl_11)
+influence.measures(mdl_11)
+
+```
+#--------
+#Model 5
+```{r}
+mdl_5<-lm(train$Enerji~train$Sıcaklık+train$Nem)
+summary(mdl_5)
+```
+
+H_0:Artıkların varyansı homojendir
+H_1:Artıkların varyansı heterojendir
+0.02035<0.05 → H_0 red artıkların varyansı sabit değildir.
+```{r}
+bptest(mdl_5)
+```
+
+H_0:Artıklar normal dağılır
+H_1:Artıklar normal dağılmaz
+8.959e-08<0.05 → H_0 red artıklar normal dağılmaz.
+```{r}
+ad.test(mdl_5$residuals)
+```
+
+```{r}
+ks.test(model$residuals, alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+Artıkların otokorelasyon kontrolü
+DW = 1.9834 olduğu için otokorelasyon bulunmamaktadır.
+```{r}
+dwtest(mdl_5, alternative = "two.sided")
+```
+
+```{r}
+vif(mdl_5)
+```
+
+```{r}
+outlierTest(mdl_5)
+influenceIndexPlot(mdl_5)
+influencePlot(mdl_5)
+
+influence.measures(mdl_5)
+
+```
+
+
+```{r}
+e5<-resid(mdl_5)
+d5<-rstandard(mdl_5)
+r5<-rstudent(mdl_5)
+
+uyum.değerleri5<-mdl_5$fitted.values
+
+layout(matrix(c(1,2,3),1,3))
+
+plot(uyum.değerleri5, e5, ylab = "Sıradan Artıklar (ei)", xlab = "Uyum Değerleri", ylim = c(-20,20))
+abline(h=c(0,0), col="#00AFBB")
+
+plot(uyum.değerleri5,d5, ylab = "Standart Artıklar (di)", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-3,0,3),col="#00AFBB")
+
+plot(uyum.değerleri5,r5, ylab = "Student Artıklar (ri)", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-2.5,0,2.5),col="#00AFBB")
+
+which(r5>2.5)
+which(r5<(-2.5))
+
+```
+
+```{r}
+uc_dgr<-c(459,  918, 1035, 1170, 1293, 1384, 1757, 1778, 2827, 3004, 3487, 3964, 4181, 4346, 4370, 4655, 5375, 5443, 5550, 5878, 5936, 5951, 6087, 6537, 6609,  74,  137,  332,  522,  584,  792,  875,  879, 1027, 1361, 1409, 1679,1970, 2159, 2242, 2264, 2462, 2551, 2659, 2791, 2873, 2936, 3204, 3207, 3585, 3735, 3872, 3931, 3962, 4607, 4663, 5015, 5128, 5485, 5594, 5918, 5924, 6346, 6555, 6665,879,2659,1409,2936,1027,3872,792,5485,1361,2025,2974,423,  552,  566,  618,  985, 1360, 1952, 1960, 2179, 2288, 2444, 3210, 3421, 3570, 3820, 4121, 4241, 4314,4566, 4616, 4692, 5056, 5520, 5646, 5806, 6116, 6263, 205,  406,  457, 2145, 2391, 2779, 3725, 3989, 4739, 4897, 5039, 5537, 6045, 6373, 6417, 6439)
+```
+#--------
+#7-Alternatif modellerin tahmin performansını test seti üzerinde PRESS, RMSE ve MAE değerlerini dikkate alarak inceleyiniz ve en uygun modele karar veriniz.
+
+```{r warning=FALSE}
+predictions_5<-predict(mdl_5,test)
+RMSE_5<-RMSE(predictions_5, test$Enerji)
+MAE_5<-MAE(predictions_5, test$Enerji)
+
+predictions_11<-predict(mdl_11,test)
+RMSE_11<-RMSE(predictions_11, test$Enerji)
+MAE_11<-MAE(predictions_11, test$Enerji)
+
+predictions_full<-predict(model,test)
+RMSE_full<-RMSE(predictions_full, test$Enerji)
+MAE_full<-MAE(predictions_full, test$Enerji)
+
+
+cbind(RMSE_5, RMSE_11, RMSE_full, MAE_5, MAE_11, MAE_full)
+```
+
+Model 5 (sıcaklık+nem), Model 11 (sıcaklık+vakum+nem), model 15(full) modellerinin tahmin doğruluğu üzerinde RMSE ve MAE değerlerini karşılaştırdığımızda 11 ve full modelin neredeyse aynı değerleri verdiğini bununla birlikte model 5'in en küçük değerleri vermesi üzerine biz sıcaklık ve nemin bulunduğu model 5'e karar verdik.
+
+
+#8-Hipotezleri yazarak, hataların normal dağıldığı varsayımını grafikle ve uygun istatistiksel test ile kontrol ediniz.
+```{r}
+layout(matrix(c(1,2,3,4),2,2))
+
+qqnorm(e5, ylab = "Sıradan Artıklar", xlab = "Normal Değerleri", col="#00AFBB")
+qqline(e5)
+
+qqnorm(d5, ylab = "Standart artıklar", xlab = "Normal Değerleri", col="#E7B800")
+qqline(d5)
+
+qqnorm(r5, ylab = "Student artıklar", xlab = "Normal Değerleri", col="#FC4E07")
+qqline(r5)
+
+```
+
+```{r warning=FALSE}
+hist(mdl_5$residuals, col = "#00AFBB")
+```
+
+H_0:Artıklar normal dağılır
+H_1:Artıklar normal dağılmaz
+```{r}
+ad.test(mdl_5$residuals)
+```
+
+```{r}
+ks.test(model$residuals, alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+8.959e-08<0.05 → H_0 red artıklar normal dağılmaz.
+
+#9-Hipotezleri yazarak, hataların sabit varyanslı olup olmadığını grafikle ve uygun istatistiksel test ile kontrol ediniz.
+```{r}
+plot(uyum.değerleri5, r5, ylab = "Student Artıklar (ri)", xlab = "Uyum Değerleri",
+     ylim = c(-5,5))
+abline(h=c(0,0), col="#00AFBB")
+```
+H_0:Artıkların varyansı homojendir
+H_1:Artıkların varyansı heterojendir
+```{r}
+bptest(mdl_5)
+```
+0.02035<0.05 → H_0 red artıkların varyansı sabit değildir.
+
+#10-Uç değer ve etkin gözlem olup olmadığını grafiklerle ve ilgili değerlerle belirleyiniz.
+```{r}
+layout(matrix(c(1,2,3),1,3))
+
+plot(uyum.değerleri5, e5, ylab = "Sıradan Artıklar", xlab = "Uyum Değerleri", ylim = c(-20,20))
+abline(h=c(0,0), col="purple")
+
+plot(uyum.değerleri5,d5, ylab = "Standart Artıklar", xlab = "Uyum Değerleri", ylim = c(-5,5))
+abline(h=c(-3,0,3),col="purple")
+
+plot(uyum.değerleri5,r5, ylab = "Student Artıklar", xlab = "Uyum Değerleri", ylim = c(-5,5))
+abline(h=c(-2.5,0,2.5),col="purple")
+
+```
+
+```{r}
+which(r5>2.5)
+which(r5<(-2.5))
+```
+
+Student artık (|ri|>2.5) kriterimize baktığımızda  459  918 1035 1170 1293 1384 1757 1778 2827 3004 3487 3964 4181 4346 4370 4655 5375 5443 5550 5878 5936 5951 6087 6537 6609  74  137  332  522  584  792  875  879 1027 1361 1409 1679 1970 2159 2242 2264 2462 2551 2659 2791 2873 2936 3204 3207 3585 3735 3872 3931 3962 4607 4663 5015 5128 5485 5594 5918 5924 6346 6555 6665  gözlemler uç değer çıkmıştır.
+
+
+Leverage noktaları Hat matrisinin köşegen elemanlarıdır.hii>2p/n olması durumunda bu gözlem etkili bir noktadır.
+```{r}
+h<-hatvalues(mdl_5)
+plot(h,ylab="Leverages",main="Index plot of Leverages", col="purple")
+abline(h=2*mean(h))
+sum(h)
+a<-which(h > 2*mean(h))
+
+```
+ gözlemler etkin gözlemlerdir ve incelenmelidir.
+
+
+Cook uzaklığı, verilerden belirli bir gözlem atıldığında B(şapka) vektöründeki değişimi ölçmek için tasarlanmıştır. Di>1 veya Di>4/(n-p) ise, i. gözlemin B(şapka) üzerinde yüksek etkili bir gözlemdir.
+```{r}
+c5<-cooks.distance(mdl_5)
+cooks.distance(mdl_5)>(4/mdl_5$df.residual)
+which(cooks.distance(mdl_5)>4/mdl_5$df.residual)
+plot(cooks.distance(mdl_5))
+c5i<-4/mdl_5$df.residual
+identify(c5, pch = 1, frame = FALSE)
+which(c5>c5i)
+
+```
+gözlemler Di>4/(n-p) bu kriter için B(şapka) üzerinde yüksek etkili bir gözlemdir.
+
+```{r}
+outlierTest(mdl_5)
+influenceIndexPlot(mdl_5)
+influencePlot(mdl_5)
+influence.measures(mdl_5)
+
+```
+
+
+##Final model
+```{r}
+data<-train[-uc_dgr,]
+final_model<-lm(data$Enerji~data$Sıcaklık+data$Nem)
+summary(final_model)
+```
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(final_model)
+par(mfrow=c(1,1))
+```
+
+H_0:Artıklar normal dağılır
+H_1:Artıklar normal dağılmaz
+8.959e-08<0.05 → H_0 red artıklar normal dağılmaz.
+```{r}
+ad.test(final_model$residuals)
+```
+
+```{r}
+ks.test(final_model$residuals, alternative="two.sided",
+        "pnorm",mean=0,sd=1)
+```
+
+
+Artıkların otokorelasyon kontrolü
+DW = 1.9725 olduğu için otokorelasyon bulunmamaktadır.
+```{r}
+dwtest(final_model)
+```
+
+
+```{r}
+vif(final_model)
+```
+
+
+```{r}
+outlierTest(final_model)
+influenceIndexPlot(final_model)
+influencePlot(final_model)
+
+influence.measures(final_model)
+
+```
+
+
+```{r}
+e<-resid(final_model)
+d<-rstandard(final_model)
+r<-rstudent(final_model)
+
+uyum.değerleri<-final_model$fitted.values
+
+layout(matrix(c(1,2,3),1,3))
+
+plot(uyum.değerleri, e, ylab = "Sıradan Artıklar (ei)", xlab = "Uyum Değerleri", ylim = c(-15,15))
+abline(h=c(0,0), col="#00AFBB")
+
+plot(uyum.değerleri,d, ylab = "Standart Artıklar (di)", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-3,0,3),col="#00AFBB")
+
+plot(uyum.değerleri,r, ylab = "Student Artıklar (ri)", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-2.5,0,2.5),col="#00AFBB")
+
+which(r>2.5)
+which(r<(-2.5))
+
+```
+
+#11-Yeni bir gözlem değeri için %95’lik güven aralığını ve/veya kestirim aralığını bularak yorumlayınız.
+```{r}
+new <- data.frame(Sıcaklık = test$Sıcaklık, Nem = test$Nem)
+new
+head(predict(final_model, new))
+```
+
+Sıcaklık ve nem için enerji çıkısının dağılımının ortalamasının güven aralığı
+```{r}
+predictnewconf <- predict(final_model,newdata = new,interval="confidence")
+lower<-predictnewconf[2,]
+upper<-predictnewconf[3,]
+fit<-predictnewconf[1,]
+cbind(new,lower,upper,fit,test$Enerji)
+```
+-Sıcaklık 23.64 C ve nem %74.20 iken %95 güvenle net saatlik elektrik enerjisi çıkışı  ortalama 7.73 dolar443.95 MW ile	462.10 MW arasında değişir.
+
+
+x1 ve x2 için y'a ait kestirim aralığı
+```{r}
+
+predictnewpred<-predict(final_model,new,interval="prediction")
+fit_k<-predictnewpred[1,]
+lower_k<-predictnewpred[2,]
+upper_k<-predictnewpred[3,]
+cbind(new, lower_k, upper_k, fit_k, test$Enerji) 
+
+```
+
+-Sıcaklık 13.97 ve nem 84.60 iken %95 güvenle net saatlik elektrik enerjisi çıkışı 435.14 MW ile	453.29 MW arasında değişir.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

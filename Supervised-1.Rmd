@@ -1,0 +1,750 @@
+---
+title: "Supervised"
+author: "Buse Nur Baltacıoğlu"
+date: "05 12 2020"
+output:
+  word_document: default
+  pdf_document: default
+---
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(broom)
+library(ggpubr)
+library(corrplot)
+library(ISLR)
+library(car)
+library(olsrr)
+library(lmtest)
+library(GGally)
+library(caret)
+library(tidyverse)
+library(AppliedPredictiveModeling)
+library(pls)
+library(elasticnet)
+library(broom)
+library(glmnet)
+library(MASS)
+library(PerformanceAnalytics)
+library(funModeling)
+library(Matrix)
+library(forecast)
+```
+
+#1-Veri setini tanıtınız.
+
+Ot çeşidine göre mera kira yapısını araştırmak için Minnesota'daki çeşitli ilçelerden aşağıdaki veriler toplandı.
+
+https://extension.umn.edu/pasture-based-dairy/grazing-and-pasture-management-cattle
+
+X1: ekilebilir arazi dönümü başına kira ($)
+x2: mil^2 başına süt ineği oranı
+x3: otlak ve ekilebilir arazi arasındaki fark
+ y: çim çeşiti için dönüm başına kira bedeli
+
+```{r}
+
+arazi <- read_table2("https://raw.githubusercontent.com/halil-durmaz/dataset/main/arazi.txt", col_names = FALSE)
+
+head(arazi)
+
+df<-arazi[,-1]
+colnames(df)<-c("x_1","x_2","x_3","yy")
+head(df)
+attach(df)
+ggpairs(df)
+
+```
+
+H_0:Yy değişkeni normal dağılır.
+H_1:Yy değişkeni normal dağılmaz.
+
+```{r}
+shapiro.test(yy)
+```
+(p-value =0.01758) < 0.05 olduğu için H_0 red çim çeşiti için dönüm başına kira bedeli değişkeni normal dağılmaz.
+Grafikten ve normallik testiyle kontrol ettiğimiz bağımlı değikenimiz doğrusal regresyon varsayımlarından biri olan bağımlı değişkenin normal dağılması varsayımını sağlayamamaktadır. Bu sebepten bağımlı değişkenimize karekök dönüşümü yaptık.
+
+
+```{r}
+y1<-sqrt(yy)
+y1
+
+df1<-data.frame(y1,x_1,x_2,x_3)
+head(df1)
+attach(df1)
+```
+
+##Train-test set
+```{r}
+
+sample <- floor(0.95 * nrow(df1))
+set.seed(2468) 
+train_ind <- sample(nrow(df1), size = sample, replace = FALSE)
+train <- df1[train_ind, ]
+test <- df1[-train_ind, ]
+
+dim(train)
+dim(test)
+str(test)
+attach(train)
+
+y<-train$y1
+x1<-train$x_1
+x2<-train$x_2
+x3<-train$x_3
+
+```
+Veri setimiz 67 gözlem ve 4 değişkenden oluşmaktadır. Veri setimizi eğitim ve test verisi olarak ayırdık eğitim verisi 63-4 ve test verisi 4-4  optimal modele karar verdikten sonra test verisini tahminlemek için kullanıcaz.
+
+#2-Tanımlayıcı istatistikleri grafiklerle destekleyerek elde ediniz ve yorumlayınız.
+```{r}
+summary(train)
+```
+
+```{r}
+apply(train, 2, sd)
+```
+
+```{r}
+boxplot(train, col = "#00AFBB")
+```
+
+```{r}
+ggpairs(train)
+```
+ x1: Ekilebilir arazinin dönümü başına kira 6.17 dolar ile 83.90 dolar arasında 44.28 ortalama ve 21.39 standart sapmayla değişmektedir. İki tepeli bir dağılım olduğunu söyleyebiliriz.
+ x2: Mil kare başına süt ineği oranı 1.53 ile 58.60 arasında 20.38 ortalama ve 15.54 standart sapmayla değişmektedir. Bu değişkenimiz sağa çarpık bir dağılıma sahiptir.
+ x3: Otlak ve ekilebilir arazi arasındaki fark 0.02 ile 0.72 arasında 0.17 ortalama ve 0.14 standart sapmayla değişmektedir. Bu değişkenimiz de sağa çarpık ve ağır kuyruklu olduğunu söyleyebiliriz.
+  y: Çim çeşidi için dönüm başına kira bedeli 2.24 ile 9.96 arasında 6.27 ortalama ve 1.81 standart sapmayla değişmektedir.
+H_0:Y değişkeni normal dağılır.
+H_1:Y değişkeni normal dağılmaz.
+```{r}
+shapiro.test(y)
+```
+(p-value = 0.3629) > 0.05 olduğu için H_0 reddedilemez y bağımlı değişkeni normal dağılır.
+
+
+
+
+
+
+
+#3-Korelasyon matrisini ve ilgili görselleri oluşturarak, yorumlayınız.
+```{r}
+pairs(train[,1:4], pch=19, col="#00AFBB", lower.panel = NULL)
+```
+
+```{r}
+cor_df<-cor(train)
+corrplot::corrplot.mixed(cor_df)
+```
+  Korelasyon matrisine baktığımızda;
+  
+-Çim çeşidi için dönüm başına kira bedeli(y) ile ekilebilir arazinin dönümü başına kirası(x1) arasında doğrusal pozitif yönlü güçlü bir ilişki bulunmaktadır.
+
+-Çim çeşidi için dönüm başına kira bedeli(y) ile mil kare başına süt ineği oranı(x2) arasında doğrusal pozitif yönlü zayıf bir ilişki bulunmaktadır.
+
+-Çim çeşidi için dönüm başına kira bedeli(y) ile otlak ve ekilebilir arazi arasındaki fark(x3) değişkeni arasında doğrusal negatif yönlü zayıf bir ilişki bulunmaktadır. 
+
+-Ekilebilir arazinin dönümü başına kirası(x1) ile mil kare başına süt ineği oranı(x2) arasında doğrusal bir ilişki bulunmamaktadır.
+
+-Ekilebilir arazinin dönümü başına kirası(x1) ile otlak ve ekilebilir arazi arasındaki fark(x3) değişkeni arasında doğrusal negatif yönlü bir ilişki bulunmaktadır.
+
+-Mil kare başına süt ineği oranı(x2) ile otlak ve ekilebilir arazi arasındaki fark(x3) değişkeni arasında doğrusal pozitif yönlü bir ilişki bulunmaktadır.
+
+
+
+
+#4-Çoklu doğrusal regresyon modelini elde ediniz.
+```{r}
+model<-lm(y~x1+x2+x3)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(model)
+par(mfrow=c(1,1))
+```
+
+##a-Anlamlı katsayıları belirleyiniz.
+
+H0: Bj=0
+H1: En az bir Bj farklıdır,  j=1,2,3
+```{r}
+anova(model)
+```
+
+```{r}
+summary(model)
+```
+
+-F istatistiğine karşılık gelen 2.2e-16<0.05 olduğu için %95 güven düzeyinde H0 red edilir; en az bir katsayı model için anlamlıdır.Model geçerlidir.
+
+ Bu modelde B1 ve B2 katsayıları %95 güvenle anlamlı çıkmıştır.
+ 
+-b0:Bağımsız değişkenlerin değerleri 0 olduğunda çim çeşidi için dönüm başına kira bedelinin aldığı ortalama değer 2.57 dolardır.
+
+-b1:Diğer değişkenler modelde ve sabitken ekilebilir arazi dönümü başına kira(x1), 1 $ arttığında çim çeşidi için dönüm başına kira bedelini ortalama 0.07 dolar artırır.
+
+-b2:Diğer değişkenler modelde ve sabitken mil^2 başına süt ineği oranı(x2), 1 birim arttığında çim çeşidi için dönüm başına kira bedelini ortalama 0.04 dolar artırır.
+
+-b3:Diğer değişkenler modelde ve sabitken otlak ve ekilebilir arazi arasındaki fark(x3), 1 birim arttığında çim çeşidi için dönüm başına kira bedelini ortalama 1.15 dolar azaltır.
+
+
+
+
+##b-R^2 ve adj-R^2 katsayılarını yorumlayınız.
+```{r}
+summary(model)
+```
+-Çim çeşidi için dönüm başına kira bedelindeki değişim, bağımsız değişkenler(x1,x2,x3) tarafından %88.95 oranında açıklanmaktadır.
+
+-R-Sq (adj) değeri %88.38 olarak elde edilmiş R-Sq %88.95 değerine çok yakın olduğu yani modelde bulunan değişkenlerin model için anlamlı olduğu söylenebilir.
+
+
+
+##c-VIF değerlerini hesaplatarak yorumlayınız.
+```{r}
+vif(model)
+```
+-Bağımsız değişkenler birbirinden bağımsız olmalıdır. Bu modelde vif değerleri 5'ten küçük çıkmıştır. Korelasyon matrisinde de görüldüğü gibi aralarında doğrusal bir bağlantı yoktur.
+
+
+
+
+
+#5-Değişken seçim yöntemlerini kullanarak (Değişken seçim yöntemleri ile ana etkenlere karar verilmektedir. Veri seti içinde karesel, kübik, vb. etkisi olduğunu düşündüğünüz ya da etkileşim etkisini katabileceğiniz şekilde modeli geliştirebilirsiniz) ve alternatif modeller için tahmin performanslarını karşılaştırarak final modelinize karar veriniz.
+#===============================================================
+##Olası en iyi alt küme seçimi
+```{r}
+a<-ols_step_all_possible(model)
+summary(a)
+plot(a)
+View(a)
+```
+-ilk elemeyi Cp üzerinden yapılırsa modeldeki yanlılığı ortadan kaldırabiliriz. Modeldeki parametre sayısına eşit çıkması istenir. Bu modelde 4.(x1+x2) biraz yanlı ama göze alınabilecek bir yanlılık ve 7.(x1+x2+x3) modelde ise yanlılık bulunmamaktadır. 
+
+-Düzeltilmiş R^2 üzerinden karşılaştırma yapmak daha uygun ve ikisininde büyük ve yakın çıkması(modele alınan değişkenlerin anlamlı olduğu anlamına gelir) bu sebepten 4. ve 7. model en yüksek açıklamaya sahiptir.
+
+-Akaike Bilgi Kriteri (AIC) ve Bayesian Bilgi Kriteri (BIC,SBIC) kriterleri için de değerlerin küçük çıkması istenir. Bu kriterler 4. ve 7. modelleri önerir.
+
+-Bunlarla birlikte ne kadar az değişken o kadar iyi olduğu için R^2'ler ve Cp açısındanda 4. model alternatif bir modeldir.
+
+
+##Adımsal regresyon
+```{r}
+s<-ols_step_both_p(model)
+plot(s)
+s$model
+s
+```
+-Adımsal regresyon modeline göre 4. model seçilmiştir. x1 ve x2 nin olduğu model
+
+
+
+##İleriye doğru seçim
+```{r}
+f=ols_step_forward_p(model)
+f$model
+plot(f)
+f
+```
+-İleriye doğru seçim 7. modeli yani full modeli seçmiştir. 
+
+
+##Geriye doğru eleme 
+```{r}
+b=ols_step_backward_p(model)
+b$model
+plot(b)
+b
+```
+-Geriye doğru eleme yöntemi 7. modeli seçmiştir. 
+
+Tüm değişken seçim yöntemleri x1+x2 modeli ile full modeli önermiştir.
+#=============================================================================================
+##Alternatif modeller
+##Full model (x1+x2+x3)
+```{r}
+summary(model)
+```
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(model)
+par(mfrow=c(1,1))
+```
+
+H_0:Artıkların varyansı homojendir
+H_1:Artıkların varyansı heterojendir
+0.6667>0.05 → H_0 reddedilemez artıklar sabitdir.
+```{r}
+bptest(model)
+```
+
+
+
+H_0:Artıklar normal dağılır
+H_1:Artıklar normal dağılmaz
+0.9408>0.05 → H_0 reddedilemez artıklar normal dağılır.
+```{r}
+shapiro.test(model$residuals)
+```
+
+
+
+Artıkların otokorelasyon kontrolü
+(DW = 1.8487)<2 olduğu için zayıf pozitif yönlü otokorelasyon bulunmaktadır.
+```{r}
+dwtest(model)
+```
+
+
+
+```{r}
+vif(model)
+```
+
+```{r}
+layout(matrix(c(1,2,3,4),2,2))
+
+e<-resid(model)
+qqnorm(e, ylab = "Sıradan Artıklar", xlab = "Normal Değerleri", col="#00AFBB")
+qqline(e)
+
+d<-rstandard(model)
+qqnorm(d, ylab = "Standart artıklar", xlab = "Normal Değerleri", col="#E7B800")
+qqline(d)
+
+r<-rstudent(model)
+qqnorm(r, ylab = "Student artıklar", xlab = "Normal Değerleri", col="#FC4E07")
+qqline(r)
+
+```
+
+```{r}
+uyum.değerleri<-model$fitted.values
+
+layout(matrix(c(1,2,3),1,3))
+
+plot(uyum.değerleri, e, ylab = "Sıradan Artıklar", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(0,0), col="purple")
+
+plot(uyum.değerleri,d, ylab = "Standart Artıklar", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-3,0,3),col="purple")
+
+plot(uyum.değerleri,r, ylab = "Student Artıklar", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-2.5,0,2.5),col="purple")
+
+which.min(r)
+which.max(r)
+```
+student artıklara göre 10. ve 54. gözlem uç değer çıkmıştır.
+
+Şapka Matrisindeki Köşegen Değerleri
+```{r}
+h_v<-hatvalues(model)
+plot(h_v,ylab="Leverages",main="Index plot of Leverages", col="purple")
+abline(h=2*mean(h_v))
+sum(h_v)
+h_v[h_v > 2*mean(h_v)]
+```
+hat değerlerine baktığımızda 1., 43., ve 57., gözlemler etkin gözlemlerdir ve incelenmelidir.
+
+Cook Uzaklığı, verilerden belirli bir gözlem atıldığında B(şapka) vektöründeki değişimi ölçmek için tasarlanmıştır.
+```{r}
+c<-cooks.distance(model)
+cooks.distance(model)>(4/model$df.residual)
+which(cooks.distance(model)>4/model$df.residual)
+plot(cooks.distance(model))
+ci<-4/model$df.residual
+identify(c, pch = 1, frame = FALSE)
+which(c>ci)
+
+```
+24., 29. ve 59. gözlemler B(şapka) üzerinde yüksek etkili bir gözlemdir.
+
+
+Covratio istatistiği bir gözlemin silinmesi durumunda genel varyansın nasıl etkilendiğini gösterir.
+```{r}
+covratio(model)
+plot(covratio(model))
+abline(h=c(1),col="purple")
+```
+1,10,31,43,49,54,57. gözlemler parametre tahminlerinin var-cov matrisleri üzerinde etkili gözlemler olarak dikkate alınır.
+
+```{r}
+influ<-influence.measures(model)
+influ$is.inf
+```
+
+```{r}
+outlierTest(model)
+influenceIndexPlot(model)
+influencePlot(model)
+
+influence.measures(model)
+
+```
+
+
+
+
+
+##model → x1+x2
+```{r}
+model_a<-lm(y~x1+x2)
+summary(model_a)
+```
+
+H_0:Artıkların varyansı homojendir
+H_1:Artıkların varyansı heterojendir
+0.3574>0.05 → H_0 reddedilemez artıkların varyansı sabitdir.
+```{r}
+bptest(model_a)
+```
+
+
+
+
+H_0:Artıklar normal dağılır
+H_1:Artıklar normal dağılmaz
+0.9045>0.05 → H_0 reddedilemez artıklar normal dağılır.
+```{r}
+shapiro.test(model_a$residuals)
+```
+
+
+
+Artıkların otokorelasyon kontrolü
+(DW = 1.8766)<2 olduğu için zayıf pozitif yönlü otokorelasyon bulunmaktadır.
+```{r}
+dwtest(model_a)
+```
+
+
+
+
+```{r}
+vif(model_a)
+```
+
+```{r}
+outlierTest(model_a)
+influenceIndexPlot(model_a)
+influencePlot(model_a)
+
+influence.measures(model_a)
+
+```
+
+
+```{r}
+e1<-resid(model_a)
+d1<-rstandard(model_a)
+r1<-rstudent(model_a)
+
+uyum.değerleri_a<-model_a$fitted.values
+
+layout(matrix(c(1,2,3),1,3))
+
+plot(uyum.değerleri_a, e1, ylab = "Sıradan Artıklar (ei)", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(0,0), col="#00AFBB")
+
+plot(uyum.değerleri_a,d1, ylab = "Standart Artıklar (di)", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-3,0,3),col="#00AFBB")
+
+plot(uyum.değerleri_a,r1, ylab = "Student Artıklar (ri)", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-2.5,0,2.5),col="#00AFBB")
+
+which.min(r1)
+which.max(r1)
+
+```
+|di|>3 kriteri ile standart artıklara baktığımızda 3 tane potansiyel uç değer vardır ve |ri|>2.5 kriterimize baktığımızda 2 tanede ki bunlar 10. ve 54. gözlemler uç değer çıkmıştır.
+
+
+
+#================================================================================
+##a-Hataların normal dağıldığı varsayımını grafikle ve uygun istatistiksel test ile kontrol ediniz.
+```{r}
+layout(matrix(c(1,2,3,4),2,2))
+
+qqnorm(e1, ylab = "Sıradan Artıklar", xlab = "Normal Değerleri", col="#00AFBB")
+qqline(e1)
+
+qqnorm(d1, ylab = "Standart artıklar", xlab = "Normal Değerleri", col="#E7B800")
+qqline(d1)
+
+qqnorm(r1, ylab = "Student artıklar", xlab = "Normal Değerleri", col="#FC4E07")
+qqline(r1)
+
+```
+
+```{r}
+hist(model_a$residuals, col = "#00AFBB")
+```
+
+H_0:Artıklar normal dağılır
+H_1:Artıklar normal dağılmaz
+```{r}
+shapiro.test(model_a$residuals)
+```
+0.9045>0.05 → H_0 reddedilemez artıklar normal dağılır.
+
+
+
+
+
+
+
+
+
+
+##b-Hataların sabit varyanslı olup olmadığını grafikle ve uygun istatistiksel test ile kontrol ediniz.
+```{r}
+plot(uyum.değerleri_a, model_a$residuals, ylab = "Sıradan Artıklar (ei)", xlab = "Uyum Değerleri",
+     ylim = c(-3,3))
+abline(h=c(0,0), col="#00AFBB")
+```
+H_0:Artıkların varyansı homojendir
+H_1:Artıkların varyansı heterojendir
+```{r}
+bptest(model_a)
+```
+0.3574>0.05 → H_0 reddedilemez artıkların varyansı sabittir.
+
+
+
+
+
+
+
+
+
+##c-Uç değer ve etkin gözlem olup olmadığını grafiklerle ve ilgili değerlerle belirleyiniz.
+```{r}
+uyum.değerleri1<-model_a$fitted.values
+
+layout(matrix(c(1,2,3),1,3))
+
+plot(uyum.değerleri1, e1, ylab = "Sıradan Artıklar", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(0,0), col="purple")
+
+plot(uyum.değerleri1,d1, ylab = "Standart Artıklar", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-3,0,3),col="purple")
+
+plot(uyum.değerleri1,r1, ylab = "Student Artıklar", xlab = "Uyum Değerleri", ylim = c(-3,3))
+abline(h=c(-2.5,0,2.5),col="purple")
+
+which.min(r1)
+which.max(r1)
+
+```
+|di|>3 kriteri ile standart artıklara baktığımızda 3 tane potansiyel uç değer vardır ve |ri|>2.5 kriterimize baktığımızda 2 tanede ki bunlar 10. ve 54. gözlemler uç değer çıkmıştır.
+
+
+
+
+Leverage noktaları Hat matrisinin köşegen elemanlarıdır.hii>2p/n olması durumunda bu gözlem etkili bir noktadır.
+```{r}
+h<-hatvalues(model_a)
+plot(h,ylab="Leverages",main="Index plot of Leverages", col="purple")
+abline(h=2*mean(h))
+sum(h)
+h[h > 2*mean(h)]
+
+```
+29. ve 57. gözlemler etkin gözlemlerdir ve incelenmelidir.
+
+
+
+Cook uzaklığı, verilerden belirli bir gözlem atıldığında B(şapka) vektöründeki değişimi ölçmek için tasarlanmıştır. Di>1 veya Di>4/(n-p) ise, i. gözlemin B(şapka) üzerinde yüksek etkili bir gözlemdir.
+```{r}
+ca<-cooks.distance(model_a)
+cooks.distance(model_a)>(4/model$df.residual)
+which(cooks.distance(model_a)>4/model$df.residual)
+plot(cooks.distance(model_a))
+cai<-4/model_a$df.residual
+identify(ca, pch = 1, frame = FALSE)
+which(ca>cai)
+
+```
+10,29,31,35,54,59. gözlemler Di>4/(n-p) bu kriter için B(şapka) üzerinde yüksek etkili bir gözlemdir.
+```{r}
+inf<-influence.measures(model_a)
+inf$is.inf
+```
+Di>1 kriteri ile inclenirse B(şapka) üzerinde yüksek etkili bir gözlem bulunmamıştır diyebiliriz.
+
+
+COVRATİOi istatistiği bir gözlemin silinmesi durumunda genel varyansın nasıl etkilendiğini gösterir.
+```{r}
+covra<-covratio(model_a)
+plot(covra)
+cl<-(1-3*(mean(h)))
+cu<-(1+3*(mean(h)))
+abline(h=c(cl,cu),col="purple")
+identify(covra, pch = 1, frame = FALSE)
+which(covra<cl) 
+which(covra>cu)
+```
+10,31,54,57 bu  gözlemler parametre tahminlerinin var-cov matrisleri üzerinde etkili gözlemler olarak dikkate alınır.
+
+
+
+##d-VIF değerlerine bakarak yorumlayınız.
+
+```{r}
+vif(model_a)
+```
+-Bu modelde vif değerleri 5'ten küçük çıkmıştır. Aralarında çoklu doğrusal bir bağlantı yoktur.
+
+
+
+
+##e-Final modelin katsayılarını yorumlayınız.
+```{r}
+model_a<-lm(y~x1+x2)
+summary(model_a)
+```
+H0: Bj=0
+H1: En az bir Bj farklıdır,  j=1,2
+
+-F istatistiğine karşılık gelen 2.2e-16<0.05 olduğu için %95 güven düzeyinde H0 red edilir; en az bir katsayı model için anlamlıdır.Model geçerlidir.
+
+ Bu modelde tüm katsayılar %95 güvenle anlamlı çıkmıştır.
+ 
+-b0:ekilebilir arazi dönümü başına kira(x1) ve mil^2 başına süt ineği oranı(x2) 0 olduğunda çim çeşidi için dönüm başına kira bedelinin aldığı ortalama değer 2.32 dolar olacaktır.
+
+-b1:mil^2 başına süt ineği oranı(x2) modelde ve sabitken ekilebilir arazi dönümü başına kira(x1), 1 $ arttığında çim çeşidi için dönüm başına kira bedelini ortalama 0.075 dolar artırır.
+
+-b2:ekilebilir arazi dönümü başına kira(x1) değişkeni modelde ve sabitken mil^2 başına süt ineği oranı(x2), 1 birim arttığında çim çeşidi için dönüm başına kira bedelini ortalama 0.03 dolar artırır.
+
+
+
+##f-Katsayıların %95'lik güven aralıklarını elde ederek yorumlayınız.
+```{r}
+confint.lm(model_a)
+```
+-B0:ekilebilir arazi dönümü başına kira(x1) ve mil^2 başına süt ineği oranı(x2) 0 olduğunda %95 güvenle çim çeşidi için dönüm başına kira bedeli 1.915 dolar ile 2.732 dolar arasındadır.
+
+
+-B1:mil^2 başına süt ineği oranı(x2) modelde ve sabitken, ekilebilir arazi dönümü başına kira(x1) 1 $ arttığında %95 güvenle çim çeşidi için dönüm başına kira bedeli 0.068 dolar ile 0.083 dolar arasındadır.
+
+-B2:ekilebilir arazi dönümü başına kira(x1) modelde ve sabitken, mil^2 başına süt ineği oranı(x2) 1 birim arttiğında %95 güvenle çim çeşidi için dönüm başına kira bedeli 0.02 dolar ile 0.04 dolar arasındadır.
+
+
+
+##g-Yeni bir gözlem değeri için %95'lik güven aralığı ve kestirim aralığını bularak yorumlayınız.
+
+```{r}
+test
+```
+
+
+```{r}
+new <- data.frame(x1 = test$x_1, x2= test$x_2)
+predict(model_a, newdata = new)
+```
+-ekilebilir arazi dönümü başına kira(x1) 65.94 dolar ve mil^2 başına süt ineği oranı(x2) 22.10 değerlerini aldığında çim çeşidi için dönüm başına kira bedeli ortalama 7.95 dolardır.
+
+-ekilebilir arazi dönümü başına kira(x1) 20 dolar ve mil^2 başına süt ineği oranı(x2) 40.18 değerlerini aldığında çim çeşidi için dönüm başına kira bedeli ortalama 5.04 dolardır.
+
+-ekilebilir arazi dönümü başına kira(x1) 31.55 dolar ve mil^2 başına süt ineği oranı(x2) 23.47 değerlerini aldığında çim çeşidi için dönüm başına kira bedeli ortalama 5.4 dolardır.
+
+-ekilebilir arazi dönümü başına kira(x1) 26.94 dolar ve mil^2 başına süt ineği oranı(x2) 8.28 değerlerini aldığında çim çeşidi için dönüm başına kira bedeli ortalama 4.6 dolardır.
+
+
+x1 ve x2 için y‘nin dağılımının ortalamasının güven aralığı
+```{r}
+
+predictnewconf=predict(model_a,new,interval="confidence")
+cbind(new,predictnewconf, test$y1)
+
+```
+-ekilebilir arazi dönümü başına kira(x1) 65.94 dolar ve mil^2 başına süt ineği oranı(x2) 22.10 iken %95 güvenle çim çeşidi için dönüm başına kira bedeli ortalama 7.73 dolar ile	8.18 dolar arasında değişir.
+
+-ekilebilir arazi dönümü başına kira(x1) 20 dolar ve mil^2 başına süt ineği oranı(x2) 40.18 iken %95 güvenle çim çeşidi için dönüm başına kira bedeli ortalama 4.7 dolar ile	5.35 dolar arasında değişir.
+
+-ekilebilir arazi dönümü başına kira(x1) 31.55 dolar ve mil^2 başına süt ineği oranı(x2) 23.47 iken %95 güvenle çim çeşidi için dönüm başına kira bedeli ortalama 5.22 dolar ile	5.59 dolar arasında değişir.
+
+-ekilebilir arazi dönümü başına kira(x1) 26.94 dolar ve mil^2 başına süt ineği oranı(x2) 8.28 iken %95 güvenle çim çeşidi için dönüm başına kira bedeli ortalama 4.37 dolar ile	4.83 dolar arasında değişir.
+
+
+
+x1 ve x2 için y'a ait kestirim aralığı
+```{r}
+
+predictnewpred<-predict(model_a,new,interval="prediction")
+cbind(new,predictnewpred, test$y1) 
+
+```
+
+-ekilebilir arazi dönümü başına kira(x1) 65.94 dolar ve mil^2 başına süt ineği oranı(x2) 22.10 iken %95 güvenle çim çeşidi için dönüm başına kira bedeli ortalama 6.69 dolar ile	9.22 dolar arasında değişir.
+
+-ekilebilir arazi dönümü başına kira(x1) 20 dolar ve mil^2 başına süt ineği oranı(x2) 40.18 iken %95 güvenle çim çeşidi için dönüm başına kira bedeli ortalama 3.75 dolar ile	6.32 dolar arasında değişir.
+
+-ekilebilir arazi dönümü başına kira(x1) 31.55 dolar ve mil^2 başına süt ineği oranı(x2) 23.47 iken %95 güvenle çim çeşidi için dönüm başına kira bedeli ortalama 4.15 dolar ile	6.66 dolar arasında değişir.
+
+-ekilebilir arazi dönümü başına kira(x1) 26.94 dolar ve mil^2 başına süt ineği oranı(x2) 8.28 iken %95 güvenle çim çeşidi için dönüm başına kira bedeli ortalama 3.33 dolar ile 5.87 dolar arasında değişir.
+
+
+```{r}
+predictions_a<-predict(model_a,test)
+RMSE<-RMSE(predictions_a, test$y1)
+RMSE
+
+MAE<-MAE(predictions_a, test$y1)
+MAE
+
+cbind(RMSE, MAE)
+```
+
+
+```{r}
+accuracy(model_a)
+```
+
+
+
+#Modeli geliştirmek üzere görüş ve önerileriniz varsa belirtiniz.
+ → Bu veri seti için etkileşim etkisi, karesel ve kübik formlar denenmiş fakat anlamsız çıkmıştır. 
+ → Seçilen modeldeki uç değerler ve kötü kaldıraç noktalarını (4 gözlem) çıkartarak elde ettiğimiz modelin düzeltilmiş R^2 si 0.9042 olarak elde edilmiştir. Düzeltilmiş R^2'leri kıyasladığımızda aralarında  0.0223 fark vardır uç değerlerin çıkarıldığı model daha fazla açıklama oranına sahiptir.Fakat 4 gözlemin bilgisi ve yeni oluşan uç değerleri göz önüne aldığımızda bu modeli tercih etmedik zaten biz bu modeli deneme amaçlı kurmuştuk çünkü cook uzaklığı ve covratio değerlerinide göz önüne aldığımızda aslında uç değerler ve kaldıraç değerlerini bu gözlemleri kapsamaktadır.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
